@@ -1,0 +1,179 @@
+{# mi base para los dispositivos beaglebone #}
+{# these options are used by both ssh and scp! #}
+{# check the manpages *carefully* & ensure compatibility! #}
+{# Do not specify port or login (-p/-P or -l) here as this is now handled in the codebase. #}
+{% set ssh_options = (
+"         - '-o'
+          - 'Compression=yes'
+          - '-o'
+          - 'PasswordAuthentication=no'
+          - '-o'
+          - 'LogLevel=FATAL'
+") -%}
+{% set ssh_user = ssh_user|default('root') -%}
+{# The code will create the correct port arguments for SCP and SSH, as they are different #}
+{% set ssh_port = ssh_port|default('22') -%}
+{# This is no longer a requirement, to support devices that allow login without authentication #}
+{% set ssh_identity_file = ssh_identity_file|default('dynamic_vm_keys/lava') -%}
+{% set schroot_options = (
+"         - 'schroot
+          - '-d'
+          - '/'
+          - '-u'
+          - 'root'"
+) -%}
+#CHARACTERS DELAY
+{% block character_delays %}
+{% if boot_character_delays or test_character_delays %}
+character_delays:
+{% if boot_character_delays %}
+  boot: {{ boot_character_delays  | default(10) }}
+{% endif %-}
+{% if test_character_delays %}
+  test: {{ test_character_delays | default(10) }}
+{% endif -%} {# endif test_character_delays #}
+{% endif -%} {# endif boot_character_testing or test_character_delay %}
+{% endblock -%} {# endblock character_delays #}
+#
+#CONSTANTS
+#
+{% block constants %}
+constants:
+  posix:
+    lava_test_cmd : {{ lava_test_cmd | default('/bin/sh') }}
+    lava_test_result_dir : {{ lava_test_result_dir | default('/lava-%s') }}
+    lava_test_shell_file  : {{ lava_test_shell_file | default('~/.bashrc') }}
+  u-boot:
+    interrupt-prompt: '{{ uboot_autoboot_prompt | default("Hit any key to stop autoboot") }}'
+    interrupt-character: '{{ uboot_interrupt_character | default(" ") }}'
+    interrupt_ctrl_list: {{ interrupt_ctrl_list  | default([]) }}
+    interrupt-newline: {{ uboot_interrupt_newline | default(True) }}
+    final-message: '{{ uboot_final_message | default("Starting kernel") }}'
+{% if uboot_error_messages %} {# custom error messages added to default ones #}
+    error-messages:
+{% for message in uboot_error_messages %}
+      - '{{ message }}'
+{% endfor %}
+{% else %} {# default error messages #}
+    error-messages:
+      - 'Resetting CPU'- 'Must RESET board to recover'
+      - 'TIMEOUT' - 'Retry count exceeded'
+      - 'Retry time exceeded; starting again'
+      - 'ERROR: The remote end did not respond in time.'
+      - 'File not found'
+      - 'Bad Linux ARM64 Image magic!'
+      - 'Wrong Ramdisk Image Format
+      - 'Ramdisk image is corrupt or invalid'
+      - 'ERROR: Failed to allocate'
+      - 'TFTP error: trying to overwrite reserved memory'
+{% endif %}  {# endif uboot_error_message #}
+    {% if uboot_extra_error_message %}  
+      - '{{ uboot_extra_error_message }}'
+    {% endif %} {# endif uboot_extra_error_message #}
+# OS shutdown message
+# Override: set as the shutdown-message parameter of an Action.
+# SHUTDOWN_MESSAGE
+  shutdown-message: '{{ shutdown_message | default("The system is going down for reboot NOW") }}'
+  kernel-start-message: '{{ kernel_start_message | default('Linux version [0-9]') }}'
+  default_shell_prompt: '{{ default_shell_prompt | default ("lava-test: #") }}'
+  spawn_maxred: '{{ spawn_maxred | default(4092) }}'
+{% endblock constants -%}
+# 
+#COMMANDS
+# 3 types of commands  connection_command, user_command or connection_list
+{% block commands %}
+{% if connection_command or user_commands or connection_list %}
+commands:
+#CONNECTION COMMAND
+{% if connection_command %}
+  connect: {{ connection_command }}
+{% elif connection_list %} {# CONNECTION LIST #}
+  connections:
+{% for hardware in connection_list %}
+    {{ hardware }}:
+       connect: {{ connection_commands.get(hardware) }}
+{% if hardware in connection_tags %}
+       tags:
+{% if connection_tags.get(hardware) is not string %}
+{% for tag in connection_tags.get(hardware) %}
+         - {{ tag }}
+{% endfor -%}  {# tag #}
+{% endif -%}  {# is list #}
+{% endif -%}  {# if hardware #}
+{% endfor %}  {# endfor hadware in connection_list #}
+{% endif -%}  {# endif connection_command #}
+#HARD RESET COMMAND
+{% if hard_reset_command %}
+  hard_reset: {{ hard_reset_command }}                                                                                                                                      
+{% endif -%}
+# SOFT REBOOT COMMAND
+{% if soft_reboot_command %}
+  soft_reboot: {{ soft_reboot_command }}
+{% endif -%}
+# POWER OFF COMMAND
+{% if power_off_command %}
+  power_off: {{ power_off_command }}
+{% endif %}
+# POWER ON COMMAND
+{% if power_on_command %}
+  power_on: {{ power_on_command }}
+{% endif %}
+# PRE POWER COMMAND
+{% if pre_power_command %}
+  pre_power_command: {{ pre_power_command }}
+{% endif -%}
+# PRE OS COMMAND 
+{% if pre_os_command %}
+  pre_os_command: {{ pre_os_command }}
+{% endif -%}
+# RECOVERY MODE COMMAND
+{% if recovery_mode_command %}
+  recovery_mode: {{ recovery_mode_command }}
+{% endif -%}
+# RECOVERY EXIT COMMAND 
+{% if recovery_exit_command %}
+  recovery_exit: {{ recovery_exit_command }}
+{% endif -%}
+# USER COMMANDS
+{% if user_commands %}
+  users:
+{% for name, command in user_commands.items() %}
+    {{ name }}:
+       do: {{ command['do'] }}
+{% if 'undo' in command %}
+       undo: {{ command['undo'] }}
+{% endif %}  {# end if undo #}
+{% endfor %} {# end for item in user_commands.items() %}
+{% endif %}  {# end if user_commands #}
+{% endif %}  {# end if connection_command or user_commands or connection_list #}
+{% endblock commands -%}
+# ENVIRONMENT
+{% if environment %}
+{# Test shell support for exposing device-specific environment variables. #}
+{# admins need to ensure that the device dictionary sets this as a dictionary #}
+environment: {{ environment }}
+{% endif -%}
+{% block body %}{% endblock body -%}
+{% block timeouts %}
+timeouts:
+  actions:
+    apply-overlay-image:
+      minutes: {{ action_timeout_apply_overlay_image | default(2) }}
+    download-retry:
+      minutes: {{ action_timeout_download_retry | default(5) }}
+    http-download:
+      minutes: {{ action_timeout_http_download | default(5) }}
+    lava-test-shell:
+      minutes: {{ action_timeout_lava_test_shell | default(3) }}
+    nfs-deploy:
+      minutes: {{ action_timeout_nfs_deploy | default(10) }}
+    umount-retry:
+      seconds: {{ action_timeout_umount_retry | default(45) }}
+    auto-login-action:
+      minutes: {{ action_timeout_auto_login | default(2) }}
+connection:
+    auto-login-action:
+    minutes: {{ connection_timeout_auto_login | default(2) }}
+    lava-test-shell:
+    seconds: {{ connection_timeout_feedback | default(10) }}
+{% endblock timeouts -%}

@@ -1,0 +1,18 @@
+device_type: beaglebone-black
+timeouts:
+  job:
+    minutes:
+  action:
+    minutes:
+  connection
+    minutes:
+actions:
+- deploy:
+    timeout:
+      minutes: 21
+    to: ssh
+    connection: ssh 
+    methods:
+      - ssh
+- boot:
+    connection: ssh #even boot action not cause DUT to boot, mandatory to run test actions

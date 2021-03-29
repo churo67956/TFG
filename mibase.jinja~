@@ -1,0 +1,6 @@
+{# mi base para los dispositivos beaglebone #}
+{% extends base.jinja2 %}
+
+{% block vlan %}
+{# disabled #}
+{% endblock vlan%}

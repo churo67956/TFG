@@ -1,0 +1,17 @@
+device_type: beaglebone-black
+timeouts:
+  job:
+    minutes:
+  action:
+    minutes:
+  connection
+    minutes:
+action:
+- deploy:
+    timeout:
+      minutes: 21
+    to: ssh
+    connection: ssh
+    methods:
+      - ssh
+  
