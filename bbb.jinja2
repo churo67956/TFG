@@ -1,0 +1,18 @@
+{% extends 'mibase.jinja2' %}
+
+{% block body %}
+actions:
+  deploy:
+    methods:
+      ssh:
+        options:
+{{ ssh_options }}
+        host: "{{ ssh_host | default('') }}"
+        port: {{ ssh_port | default(22) }}
+        user: "{{ ssh_user | default('root') }}"
+  boot:
+    methods:
+      ssh:
+    connections:
+      ssh:
+{% endblock %}

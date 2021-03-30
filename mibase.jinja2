@@ -2,7 +2,7 @@
 {# check the manpages *carefully* & ensure compatibility! #}
 {# Do not specify port or login (-p/-P or -l) here as this is now handled in the codebase. #}
 {% set ssh_options = (
-"         - '-o'
+"          - '-o'
           - 'Compression=yes'
           - '-o'
           - 'PasswordAuthentication=no'
@@ -53,13 +53,15 @@ constants:
 {% endfor %}
 {% else %}{# default error messages #}
     error-messages:
-      - 'Resetting CPU'- 'Must RESET board to recover'
-      - 'TIMEOUT' - 'Retry count exceeded'
+      - 'Resetting CPU'
+      - 'Must RESET board to recover'
+      - 'TIMEOUT'
+      - 'Retry count exceeded'
       - 'Retry time exceeded; starting again'
       - 'ERROR: The remote end did not respond in time.'
       - 'File not found'
       - 'Bad Linux ARM64 Image magic!'
-      - 'Wrong Ramdisk Image Format
+      - 'Wrong Ramdisk Image Format'
       - 'Ramdisk image is corrupt or invalid'
       - 'ERROR: Failed to allocate'
       - 'TFTP error: trying to overwrite reserved memory'
@@ -167,7 +169,7 @@ timeouts:
       seconds: {{ action_timeout_umount_retry | default(45) }}
     auto-login-action:
       minutes: {{ action_timeout_auto_login | default(2) }}
-  connection:
+  connections:
     auto-login-action:
       minutes: {{ connection_timeout_auto_login | default(2) }}
     lava-test-shell:
