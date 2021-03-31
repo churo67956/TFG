@@ -1,5 +1,5 @@
 #This is my first primary connection on bbb to run echo tests
-device_type: bbb
+device_type: ssh
 job_name: Primary connection on bbb
 timeouts:
   job:
@@ -19,12 +19,12 @@ actions:
 - deploy:
     to: ssh
     os: debian
-    connections:
+ 
 - boot:
     method: ssh
     failure_retry: 2
     prompts:
-    - 'root@beaglebone:~#'
+    - 'root@dut-beagle-board-ingeteam:~#'
 
 - test:
     failure_retry: 3

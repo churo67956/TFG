@@ -1,0 +1,807 @@
+
+* FRAMEWORK DE PRUEBAS PARA BATERIAS ELÉCTRICAS  
+** COMMENT Pasos previos
+*** Git
+Vamos a llevar la gestión de la configuración de los artefactos necesarios para gestionar nuestra instancia de LAVA
+y de la documentación generada que presentare como TFG.
+Los paquetes software necesarios son 
+#+BEGIN_SRC shell
+sudo apt install git gitk git-mail
+#+END_SRC
+La configuración mínima necesaria es :
+#+BEGIN_SRC shell
+git config --global user.name "churo67956"
+git config --global user.email churo67956@gmail.com
+#+END_SRC
+
+Haber ya nos vamos a poner serios.
+He visto que gente como bootlin tiene toda la documentación sobre sus cursos en github. La documentación se encuentra
+dentro del siguiente repositorio https://github.com/bootlin/training-materials/.
+El README presenta ( creo ) todo lo necesario para configurar  emacs + latex.
+ vamos a llegar  la  gestión de la configuración em
+#+END_COMMENT
+*** Emacs + Latex = Auctex
+Vamos a configurar Emacs, mi editor favorito para trabajar con latex. El objetivo es :
+- crear documentos con la más alta calidad
+- ventajas que presentan los archivos de texto, por citar una la gestión de la configuración.
+**** A la estela de los más grandes : Bootlin
+Bootlin posee un repositorio con toda la documentación sobre sus cursos. El repositorio lo podemos encontrar en https://github.com/bootlin/training-materials/.
+Ahi he visto que emplea Auctex.
+ 
+** Arquitectura 
+La arquitectura que vamos a probar es la centralizada en una máquina. En nuestro host hemos instalado tanto el maestro como el exclavo.
+El host tiene instalado un debian buster.
+El DUT es un BeagleBone Black con la última versión de debian.
+Si conectamos el DUT mediante el puerto USB automáticamente nos crea dos LANs.
+Vamos a emplear una de las LANs, en concreto la 192.168.6.0/24. Las direcciones IPs de los dispositivos
+conectados son :
+
+| Dispositivo |          IP |
+| Host        | 192.168.6.1 |
+| DUT1        | 192.168.6.2 |
+| DUT2        | 192.168.6.3 |
+
+** LAVA
+*** Maestro
+*** Esclavo
+
+**** Código
+
+El código del dispatcher se encuentra en el directorio [[/lib/python3/dist-packages/lava_dispatcher][código]] .
+
+***** Servicio
+
+Dentro del directorio /lib/systemd/system encontramos el servicio creado para el *worker*.
+El fichero de configuración se llama /etc/lava-distpacher/lava-worker.
+La única configuración realizada es sobre el parámetro URL.
+El ejectuble es /usr/bin/lava-worker. Dentro del cual se realiza la llamada al método *run* del
+paquete lava_dispatcher.worker
+
+Ahora vamo a buscar el módulo *worker* del paquete *lava_dispatcher*.
+
+***** Worker
+
+El método principal del módulo *worker* es *run*.
+Trás abrir el ficher nos encontramos :
+- Carga la configuración del worker. El paquete de configuración se lava_common
+  + para parsear el fichero de configuración emplea get_parser del módulo lava_common/worker
+  + también se carga dos variables constantes como son : DISPATCHER_DOWNLOAD_DIR y WORKER_DIR
+    - DISPATCHER_DOWLOAD_DIR = /var/lib/lava/dispatcher/tmp
+    - WORKER_DIR = /var/lib/lava/dispatcher/worker
+  + carga más módulos del paquete pero creo que estos son los m´ás relevantes.
+Establece el directorio donde almacena los ficheros job.yaml, device.yaml y dispatcher.yaml. Esta ruta es WORKER_DIR / "tmp" / f{get_prefix(dispatcher_cfg)}{job_id}
+Los ficheros anteriores son especificos de cada job. Cada vez que se lanza un job se incrementa internalmente un contador.El nombre del job es job_{contador/id}
+En el directorio también se almacenan los resultados dentrol del fichero results.yaml.
+
+Realiza pings al servidor. Se tratan de peticiones tipo GET 
+Define la funcion de register. Se encarga de realizar el autoregistro en el servidor si no existe el fichero de token.
+
+El m´ódulo worker realiza llamadas al programa *lava-run* dentro del la función *start_job*
+Lanza un subproceso. Previamente ha tenido que crear una serie de ficheros : job.yaml, dispatcher.yaml 
+
+El método principal es el *main_loop* , que basicamente se encarga de hacer pings de los jobs que se encuentran en el servidor
+asociados al worker, llegar un registro localmente y ejecutar las diferentes operaciones sobre los trabajos. El nombre del worker
+coincide con hostname de la máquina.
+Los jobs son módelos de datos que tienen asociado una máquina de estados. La máquina de estados se implementa dentro de la función
+*handle*. Los estados son 3 :
+- Estado running se le asigna la función running.
+- Estado canceled la función cancel.  
+- Estado finished
+ --start---*running*---x--- *finished*
+           |                     
+	   |----- cancel ---*canceled*
+Existe una función llamada *check* que se encarga de verificar que los jobs estan en los estados que verdaderamente dice la base de datos.
+Si existe algún error los paso al estado de *finished*.
+
+Localmente el worker almacena en una base de datos SQLite los pids y los jobs asignados. A cada proceso de correponde un job_id. Los procesos son
+instancias de programa *lava-run*.De esta forma la base de datos local refleja las acciones lanzadas en el frontend.
+
+***** Dispatcher
+http://192.168.6.1/static/docs/v2/dispatcher-design.html
+A vistar de conectar el DUT con ssh vamos a estudiar el código del dispatcher
+El enlace anterior nos da información sobre el layout del lava_dispatcher.
+En concreto vamos a empezar mirando 
+****** action/deploy/ssh.py
+El fichero nos dice lo siguiente :
+- SSH Deploy para una Primary Connection implica :
+  + el dut necesita estar powered_on
+  + *to: ssh* se emplea para realizar una copia de forma implicita la autotización ( entiendo que sera la public key )
+
+
+
+***** Logical
+Tiene las clases : Deployment,Boot, LavaTest.
+Existen otras clases que afectan de lleno a la clase Action. En concreto se definen dos subclases :
++ RetryAction : repite las acciones de Boot y Test si dentro del job se especifica *repeat*.
+***** Action
+****** Pipeline
+La primeras de las clases es Pipeline. Pipeline se asegura que las acciones se ejecutan en la secuencia deseada.
+Pipeline se encarga de ejecutar los reintentos y los diagnosticos de las acciones.
+Las acciones se van agregando al pipeline.
+El pipeline se caracteriza por :
+- actions es una estrutura de datos, un array.
+- parent : toda pipeline necesita un parent y el parent debe tener asignado un nivel.
+- parameters
+- job
+Vamos a analizar mejor la accion *parent*:
+El level del parent es 
+Se diferencias 3 tipos de acciones :
+- Acción global
+- Acción individual
+- Acción de bloque
+Los diferentes tipos de acciones estan anidados.
+*** DUT
+**** Agregando DUT conexión serial 
+***** Ser2net
+Vamos a acceder al puerto serial simulando una sesión TELNET. Dentro del fichero /etc/ser2net.conf
+agregar :
+
+4000:telnet:0:/dev/ttyUSB0:115200 8DATABITS NONE 1STOPBIT banner
+***** DHCP
+Vamos a necesitar un servidor DHCP.
+El servidor que vamos a instalar es *isc-dhcp-server*.
+Vamos a configurar direcciones IP estaticas dentro de la LAN 192.168.6.0/24 .
+Necesitamos conocer las MACs de todos los interfaces de red asociados a la LAN.
+| Dispositivo | MAC               | IP             | Hostname                            |
+| PC          | f0:1f:af:5a:d4:52 | 192.168.6.1/24 | master-slave-pc.ch2it.com           |
+| BBB1        | e4:15:f6:f2:07:15 | 192.168.6.2/24 | dut-beagle-board.ch2it.com          |
+| BBB2        | 1c:ba:8c:f3:ad:47 | 192.168.6.4/24 | dut-beagle-board-ingeteam.ch2it.com |
+Hemos configurado los siguientes ficheros del PC : /etc/default/isc-dhcp-server y /etc/dhcp/dhcpd.conf.
+Básicamente en el primiero de los ficheros se especifica la interfaz donde escucha el servidor dhcp.
+Esta interfaz debe tener asignada de forma estática una IP dentro de la red antes de arrancar el servicio isc-dhcp-server.
+En el segundo de los ficheros se especifica el rango de direcciones IP dinámicas y fijas dentro de la red.
+Por otro lado, es necesario configurar el fichero /etc/network/interfaces del BBB para que de forma automatica se le asigne una IP por parte del servidor.
+Además hemos configurado el fichero /etc/hosts puesto que no hemos instalado ningun servidor DNS y por tanto se puede acceder a los dispositivos de nuestra 
+LAN por medio del HOSTNAME.
+***** TFTP
+Es necesario descargarmos del servidor TFTP los siguientes archivos : MLO,u-boot.img, DTO.
+***** NFS
+[[https://wiki.emacinc.com/wiki/Setting_up_an_NFS_File_Server][Guía]]
+Debemos de instalar el paquete NFS
+#+BEGIN_SRC shell
+apt install nfs-kernel-server
+#+END_SRC
+El fichero de configuración se encuentra en la ruta /etc/exports.
+En cada linea del fichero de configuración anterior se debe especificar el directorio compartido.
+Existen tres partes dentro de cada linea del fichero de configuración :
+- localización : ruta del directorio compartido.
+- address : la dirección IP, rango de direcciones o el hostname de la máquina con pérmisos para acceder al directorio compartido.
+- opciones : lista de opciones de las que soporta el servicio. Las opciones se separan por comas.
+En concreto hemos creado el directorio /srv/nfs/rootfs. Este directorio contiene el rootfs de nuestro DUT ( el fichero comprimido
+lo encontramos [[~/Desktop/Artefactos/bbb/rootfs-bone.cpio.gz]] ). 
+Para tener acceso desde dentro de nuestra red, vamos a agregar  la siguiente linea dentro de nuestro fichero de configuración
+/srv/nfs/rootfs 192.168.6.4(rw,no_root_squah,no_subtree_check)
+#+BEGIN_SRC shell
+exportfs -a
+#+END_SRC
+También se puede reiniciar el servidor 
+#+BEGIN_SRC shell
+systemctl restart nfs-kernel-server
+#+END_SRC
+****** Cliente NFS
+Vamos a acceder a nuestro DUT y vamos a instalar un cliente NFS para comprobar la configuración anterior.
+#+BEGIN_SRC shell
+sudo apt install 
+#+END_SRC 
+
+**** Agregando DUT. Primary remote connection
+ http://192.168.6.1/static/docs/v2/connections.html?highlight=first%20connection#primary-remote-connection
+***** Prueba de acceso al DUT 
+Por defecto en el DUT existe un servidor ssh corriendo en el DUT. Para acceder necesitamos conocer las credenciales del usuario y la dirección IP
+del DUT. Probamos con root@192.168.6.4. El programa que debemos lanzar en el HOST es ssh.
+#+BEGIN_SRC shell
+ssh root@192.168.6.4
+#+END_SRC
+Si la conexión es exita se nos pide confirmar la conexión con el servidor. Posteriormente es necesario introducir
+el password del usuario. Ya dentro de la sesión del usuario root dentro del DUT debemos de observar el siguiente prompt
+*root@dut-beagle-board-ingeteam:~#*
+Desconociamos las credeciales de los usuario del DUT y probando los típicos accedidos. En concreto, el usuario root carecía de password.
+En cierta ocasione, la conexion ssh para el usuario root no esta habilitada por comprometer gravemente al dispositivo. Para 
+habilitar su conexión debemos de fijar el valor YES al parametro de configuración PermitRootLogin dentro del fichero /etc/ssh/ssh_config.
+***** Agregamos el DUT al front end
+Desde el frontend vamos a crear un nuevo dispositivo. Accedemos al siguiente enlace  http://192.168.6.1/admin/lava_scheduler_app/device/add/ .
+Y rellenamos los campos de Hostname, Device Type, Worker Host y Device Owner.
+[[~/Imágenes/TFM/frontendAgregandoDUT.png]]
+Accedemos al dispositivos previamente creado empleando el enlace
+http://192.168.6.1/scheduler/device/dut-beagle-board-ingeteam.ch2it.com
+Nos aperece el siguiente error
+[[~/Imágenes/TFM/frontendDUTBBBAlgunosErrores.png]]
+Para solucionar el error debemos de crear el diccionario del dispositivo en el HOST.
+Se trata de un fichero, cuyo nombre debe coincidir con el nombre del device, con formato jinja2.
+El fichero debe permentecer al usuario lavaserver y al grupo lavaserver dentro del directorio /etc/lava-server/dispatcher-config/devices
+Si ahora visitamos el device dictionary del dispositivo obtenemos su detalle
+[[~/Imágenes/TFM/frontendDUTBBBAlgunosErrores.png]]
+
+***** Creamos el job
+Para conocer en detall;e la estructura de los job pensados para el DUT podemos acceder al recurso
+http://192.168.6.1/static/docs/v2/standard-armmp-ramdisk-bbb.html#standard-armmp-bbb
+Se nos muestra dos enlaces que corresponden con jobs de ramdisk.
+#+BEGIN_JOB
+device_type: beaglebone-black
+job_name: dut beagle bone ingeteam ssh
+timeouts:
+  job:
+    minutes: 10
+  action:
+    minutes: 5
+  connection:
+    minutes: 2
+priority: medium
+visibility: public
+actions:
+- deploy:
+  method: ssh 
+- boot:
+    method: ssh
+    connection: ssh
+    failure_retry: 2
+    prompt: 'root@dut-beagle-bone-ingeteam:~#'
+- test:
+    timeout:
+      minutes: 5
+    definitions:
+    - repository: http://git.linaro.org/lava-team/lava-functional-tests.git
+      from: git
+      path: lava-test-shell/smoke-tests-basic.yaml
+      name: smoke-tests
+#+END_JOB
+Dentro de deploy es necesario el metodo ssh. La forma de proceder es 
+methods:
+  ssh:
+    options:
+      - '-o'
+      - 'Compression=yes'
+      - '-o'
+      - 'PasswordAuthentication=no'
+      - '-o'
+      - 'LogLevel=FATAL'
+    host: "192.168.6.4"
+    port: 22
+    user: "root"
+    identity_file: "dynamic_vm_keys/lava"
+
+*** Conexiones
+**** Serial
+La conexión más sencilla es a través del puerto serial UART0 del DUT. Para la conexión fisica he empleado el cable FTDI-TTL232R-3V3.
+***** Problemas 
+Solo hace falta emplear 3 pines de los 6 pines que posee el cable. La hoja de caracteristica establece los siguientes códigos de colores 
+| Name | Type   | Color  | Descrption               |
+| GND  | Gnd    | Black  | Device ground supply pin |
+| TXD  | Output | Orange | ...                      |
+| RXD  | Input  | Yellow |                          |
+
+Con cuidado realizamos la conexión :
+- el pin TXD del cable coincida con el RXD de la placa.
+- el pin TXD de la placa con el RXD de cable  
+
+Previamente haciamos lanzado en la términal del host el programa picocom. Reiniciamos la placa y no logramos acceder a la placa.
+Tras abrir el puerto  USB observamos que fisicamente no coinciden los códigos de colores con los de la realidad.   
+
+| Name | Type   | Color  | Descrption               |
+| GND  | Gnd    | Green  | Device ground supply pin |
+| TXD  | Output | Red    | ...                      |
+| RXD  | Input  | Brown  |                          |
+
+Volvemos a conectarnos al puerto serial. Reiniciamos picocom y la placa logrando acceder al DUT.
+
+**** Rj45
+Conectamos el DUT con el HOST mediante un cable RJ45.
+Otra posibilidad, si el escenario necesita de más DUT, es introducir un SWITCH.
+** U-BOOT
+U-Boot es el bootloader.
+A través de la conexión serial podemos interactuar con el bootloader.
+Para acceder a la sesión que nos permite interactuar con U-Boot, tras reiniciar el dispositivo
+pulsamos cualquier tecla para cancelar el autoboot.
+
+....
+....
+Net:   <ethaddr> not set. Validating first E-fuse MAC
+cpsw, usb_ether
+Hit any key to stop autoboot:  0 
+##Pulsar cualquier tecla para cancelar el autoboot##
+
+Entramos al modo interactivo y en la consola nos abarece el siguiente prompt
+
+U-Boot#
+
+*** Comandos interesantes
+- *help* : para listar de comandos disponibles emplear el comando.
+- *setenv* : permite modificar el valor de las variables del entorno.Probar a emplear *set*, debería funcionar igual.
+  Se pueden crear nuevas variables para posteriormente emplearlas mediante ${var_env_name}
+- *saveenv* : almacenar la configuración del entorno.
+- *reset* : realizar un reset
+*** Booting
+Para realizar el booting necesitamos tener los siguientes ficheros : 
+- MLO
+- U-Image
+- Rootfs
+Los dos primeros artefactos se encuentran dentro de un servidor TFTP dentro de la máquina host.
+El rootfs al ser un dinámico por lo general se encuentra dentro de un servidor nfs. Accesible dentro de nuestra LAN.
+**** Pasos
+- Autoload a no para evitar que intente cargar las imagenes despues de recibir una dirección IP del servidor DHCP.
+*set autoload no*
+- Solicitamos una dirección ip al servidor DHCP.
+*dhcp*
+La dirección que nos asigna es la 192.168.0.3. Si no se dispone de servidor DHCP se puede asignar la dirección IP 
+*set ipaddr x.x.x.x* 
+- Fijamos la dirección IP del servidor TFTP
+*setenv serverip 192.168.6.1*
+- Cargamos en RAM el DTB
+*tftpboot ${fdtaddr} /srv/tftp/bbb/am335x-bone.dtb*
+- Cargamos en RAM el Kernel
+*tftpboot ${loadaddr} /srv/tftp/bbb/uImage-bone*
+- Necesitamos fijar los parametros para cargar el Kernel, esto se realiza mediante el Kernel cmdline.
+
+
+*** Kernel
+Normalmente el kernel se distribuye en forma de archivo binario o *imagen*.
+Cuando lo comprimimos se obtiene una versión comprimida de la imagen llamada *zImage*.
+uImage tambien es una imagen. uImage es empleada por u-Boot y se caracteriza por ser una imagen binaria comprimida 
+mediante gzip, que es empleada como payload en la herramienta mkimage.
+La imagen que me he descargado de https://people.linaro.org/~bill.flecker es un fichero uImage.
+
+** Compresión de archivos
+Los más habituales son : 
+- tar
+- cpio
+- gzip
+- unzip
+- bzip2
+**** Tar
+No es formato de archivo comprimido. Tar se emplea para agrupar un conjunto de ficheros en un único o archivo. Es ideal para 
+ser empleado con herramientas de compresión como gzip o bzip2.
+El archivo tar generado comunmente recibe el nombre de *tarball*.
+Dos comandos básicos : 
++ Crear un tarfall
+- tar cvf file-name.tar file1.txt file2.txt 
++ Recupera los archivos del tarball
+- tar xvf file-name.tar
+Para emplear tar con herramientas de compresion debos de especificar el tipo de compresion 
+- tar cvf{j,z} file-name.tar.{bz2,gz} file1.txt file2.txt
+**** cpio
+CPIO o copy in copy out. Sirve para crear archivos. Son tres las funciones básicas : 
+- Copia ficheros dentro de un archivo
+- Extracción de los ficheros del archivo
+- Pasar los ficheros extraidos a un nuevo directorio. Por defecto el directorio donde se ejecuta el comando
+Vamos a mostrar algunos ejemplos :
+*ls | cpio -ov > ~/Desktop/backup/photos.cpio*
+Extraaccion de los ficheros de un archivo cpio, por defecto se extraen dentro del directorio que nos encontramos.
+*cpio -idv < ~/Desktop/backup/photos.cpio*
+
+Tanto tar como cpio generan un archivo a partir de ficheros, con la diferencia que tar acepta como parametros
+los ficheros que se desea archivar mientras que cpio debemos de pasar los ficheros mediante el empleo de pipes.
+**** gzip
+Es una herramienta empleada para comprimir ficheros. Reduce el tamaño de los ficheros.
+Para comprimir un fichero y no borrarlo 
+gzip -c file.txt > file.gz
+Para comprimir todo un directorio
+gzip -r mydir
+Se puede emplear gzip para descomprimir 
+gzip -d file.gz
+**** bzip2
+Semejante a gzip sustituir gzip por bzip2 en todos comandos anteriores.
+** Tutorial
+*** Lava-test test definition 1.0
+Lava test shell definition es diferente de job tes definition.
+Ambos emplean YAML.
+Los job test emplean URLs de uno o más test shell definitions.
+La acción Lava-test test definition 1.0 se encarga de ejecutar 
+los test shell definition y de notificar los resultados como
+parte del ciclo de vida de un test job.
+Un Lava Test definition contiene:
+- Metadatos que describen la definicion del test.
+- Las acciones y parametros del test.
+- Las instrucciones a ejecutarse como parte del test
+Durante la accion de deploy, se añade un overlay sobre el DUT
+que incluye los comandos de test writer y los LAVA Helper Script.
+Los test actuib
+**** Metadatos
+Los test definitions en Lava-test test definition contienen dos secciones : los metadatos y las instrucciones.
+Los metadados incluyen:
+- un formato donde se especifica que la definicion del test es mediante Lava-test test difinition. 
+- un nombre corto.
+- una descripción de las instrucciones a ejectuar
+#+BEGIN_JOB
+- test:
+    definitions:
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+	    name: singlenode-advaced
+	    description: "Advance (3)....."
+	    version: "1.0"
+#+END_JOB
+Existen más opciones que aun sindo ingoradas por lava, son interesantes para el test writer para satisfacer sus requerimientos.
+Más opciones : manteiner, os, scope, devices.
+http://192.168.6.1/static/docs/v2/writing-tests.html#optional-metadata
+**** Instrucciones
+El objetivo principal de los test definitions es la ejecución ( run ) de comandos en el DUT.
+Para ejecutar los comandos estos deben especificarse dentro de la clave steps
+#+BEGIN_JOB
+- test:
+    definitions:
+      - repository:
+	  metadata:
+	   ...
+	  run:
+	    steps:
+#+END_JOB
+
+- Todos los comandos a ejectuar dentro de *step* deben de existir dentro del DUT. Normalment dentro de la sección
+metada se especifica dentro de la clave OS, el sistema operativo del DUT.
+- Debemos de generar el contexto necesario para que el comando pueda ejectuarse de forma correcta. Puede ser que debamos
+de ejecutar una serie de comandos previos para instalar ciertas dependencias.
+
+**** Inline test definitions 
+Dentro del test action de un job se puede especificar un test definition.
+De echo los jobs anteriores especifican dentro del test action un test definition de forma inline incompleta.
+http://192.168.6.1/static/docs/v2/writing-tests.html#optional-metadata
+#+BEGIN_JOB
+- test
+    timeout:
+      minutes: 4
+    definitions:
+    - repository:
+	metadata:
+	  format:
+	  name:
+	  os:
+	  description:
+	  run:
+	    steps:
+      from: inline
+      name: apache-server
+      path: inline/apache-server.yaml 
+	  
+#+END_JOB
+Una definición más completa la podemos encontrar en :
+http://192.168.6.1/static/docs/v2/examples/test-jobs/inline-test-definition-example.yaml
+
+**** Terminología
+*****  Lava test job 
+Es necesario escribir un test job definition ( fichero yaml ) que
+se envia a la instancia de LAVA y se encarga de interpresar la definición del test
+para generar un test job.
+Un test job definition describe los pasos necesarios para: deploy, el boot y test.
+Los test definitions se encuentran dentro del test action. Son de dos tipos:
+- test shell definitions que normalmente se encuentran dentro de un repositorio git
+- inline test definitions 
+***** Lava test shell definitions 
+Son fichero yaml que se almancen en repositorios git.
+Idealmente cada step de la sección de run es un simple llamada al test writer script correcto.
+#+BEGIN_JOB
+- test:
+    definitions:
+      repository:
+        metadata:
+      run:
+        steps:
+          - lava-test-case ...
+	  - lava-test-case linux-linaro-ubuntu-lscpu --shell lscpu
+#+END_JOB
+***** Lava test helpers
+Son scripts que tienen las siguientes funciones:
+- agregar información a los test shell
+- dar soporte a la comunicacion con los test jobs.
+Algunos helpers son : lava-test-case
+***** Consejos para escribir Lava test jobs
+En automatizacion existe una serie de consejos que son necesarios tenerlos en mente:
+- empezar lo más simple posible
+- desarrollo despacio sin prisas
+- modificaciones sean lo más atomicas posibles
+- comprobar las modificaciones introducidas
+
+** Workflow 
+*** Worker
+Tras haber enviado el JOB desde el frontent. Observamos con el worker recibe el job en forma de diccionario. En el fichero de log del worker se obtiene 
+#+BEGIN_LOG
+2021-03-22 11:08:48,427    INFO [4] server => START
+2021-03-22 11:08:48,569    INFO [4] Starting job
+2021-03-22 11:08:48,570   DEBUG [4]         : 
+{'actions': [
+   {'deploy': {'to': 'ssh'}},
+   {'boot': {'connection': 'ssh', 'failure_retry': 2, 'method': 'ssh', 'prompts': ['root@dut-beagle-bone-ingeteam:~#']}},
+   {'test': {
+      'definitions': [{
+        'from': 'git',
+        'name': 'smoke-tests',
+        'path': 'lava-test-shell/smoke-tests-basic.yaml',
+        'repository': 'http://git.linaro.org/lava-team/lava-functional-tests.git'
+      }],
+      'timeout': {'minutes': 5}
+   }}
+ ],
+ 'compatibility': 0,
+ 'device_type': 'beaglebone-black',
+ 'job_name': 'standard Debian ARMMP ramdisk test on bbb',
+ 'priority': 'medium',
+ 'timeouts': {
+   'action': {'minutes': 5},
+   'connection': {'minutes': 2},
+   'job': {'minutes': 10}
+ },
+ 'visibility': 'public'
+}
+
+2021-03-22 11:08:48,572   DEBUG [4]
+device  : { *INIT DEVICE*
+   'character_delays': {'boot': 10},
+   'constants': {
+     'posix': {
+       'lava_test_sh_cmd': '/bin/sh',
+       'lava_test_results_dir': '/lava-%s',
+       'lava_test_shell_file': '~/.bashrc'
+     },
+     'barebox': {
+       'interrupt-prompt': 'Hit m for menu or any other key to stop autoboot',
+       'interrupt-character': ' ',
+       'final-message': 'Starting kernel',
+       'error-messages': ['### ERROR ### Please RESET the board ###', 'ERROR: .*', '.*: Out of memory']
+     },
+     'u-boot': { 
+       'interrupt-prompt': 'Hit any key to stop autoboot',
+       'interrupt-character': ' ',
+       'interrupt_ctrl_list': [],
+       'interrupt-newline': True,
+       'final-message': 'Starting kernel',
+       'error-messages': ['Resetting CPU', 'Must RESET board to recover', 'TIMEOUT', 'Retry count exceeded', 'Retry time exceeded; starting again', 
+         'ERROR: The remote end did not respond in time.', 'File not found', 'Bad Linux ARM64 Image magic!', 'Wrong Ramdisk Image Format',
+         'Ramdisk image is corrupt or invalid', 'ERROR: Failed to allocate', 'TFTP error: trying to overwrite reserved memory'
+       ],
+       'dfu-download': 'DOWNLOAD \\.\\.\\. OK\\r\\nCtrl\\+C to exit \\.\\.\\.'
+     },
+     'grub': { 
+       'interrupt-prompt': 'for a command-line',
+       'interrupt-character': 'c',
+       'interrupt-newline': False,
+       'error-messages': ['error: missing (.*) symbol.']
+     },
+     'grub-efi': {
+      'interrupt-prompt': 'for a command-line',
+      'interrupt-character': 'c',
+      'error-messages': ['Undefined OpCode Exception PC at', 'Synchronous Exception at', 'error: missing (.*) symbol.']
+     },
+     'ipxe': {
+      'interrupt-prompt': 'Press Ctrl-B for the iPXE command line',
+      'interrupt_ctrl_list': ['b'],
+      'error-messages': ['No configuration methods succeeded', 'Connection timed out']
+     },
+     'shutdown-message': 'The system is going down for reboot NOW',
+     'kernel-start-message': 'Linux version [0-9]',
+     'default-shell-prompt':
+     'lava-test: # ', 'spawn_maxread': '4092'
+   },
+   'parameters': {  
+     'pass': None, 
+     'uimage': {'kernel': '0x82000000', 'ramdisk': '0x83000000', 'dtb': '0x88000000', 'tee': '0x83000000'}, 
+     'bootm': {'kernel': '0x82000000', 'ramdisk': '0x83000000', 'dtb': '0x88000000', 'tee': '0x83000000'}, 
+     'zimage': {'kernel': '0x82000000', 'ramdisk': '0x83000000', 'dtb': '0x88000000', 'tee': '0x83000000'}, 
+     'bootz': {'kernel': '0x82000000', 'ramdisk': '0x83000000', 'dtb': '0x88000000', 'tee': '0x83000000'}
+   },'
+   actions': { *#INIT ACTTIONS*
+    *'deploy'* : { *#INIT DEPLOY*
+      *'parameters'* : {'add_header': 'u-boot', 'mkimage_arch': 'arm', 'append_dtb': False, 'use_xip': False},
+      'connections': {'lxc': None, 'fastboot': None, 'serial': None},
+       *'methods'* : {'image': None, 'lxc': None, 'overlay': None, 'usb': None, 'tftp': None, 'nbd': None, 
+         *'ssh'* : {
+           'options': ['-o', 'Compression=yes', '-o', 'PasswordAuthentication=no', '-o', 'LogLevel=FATAL'], 'host': '', 'port': 22, 'user': 'root',
+             'identity_file': 'dynamic_vm_keys/lava'
+          }
+       }
+     }, *#END DEPLOY*
+     *'boot'* : {
+       *'connections'* : {'lxc': None, 'fastboot': None, 'serial': None}, 
+       *'methods'* : { 
+          'minimal': None,
+          *'ssh': None* ,
+          'dfu': {'implementation': 'u-boot', 'reset_works': False, 'parameters': {'enter-commands': None, 'command': 'dfu-util'}}, 
+          'u-boot': {
+             'parameters': {'bootloader_prompt': 'U-Boot', 'interrupt_prompt': 'Hit any key to stop autoboot', 'interrupt_char': '', 'needs_interrupt': True}, 
+             'ums': {'commands': ['ums 0 mmc 0']},
+             'nfs': {
+               'commands': ['setenv autoload no', 'setenv initrd_high 0xffffffff', 'setenv fdt_high 0xffffffff', 
+                 ' dhcp', 'setenv serverip {SERVER_IP}', 'tftp {KERNEL_ADDR} {KERNEL}', 'tftp {RAMDISK_ADDR} {RAMDISK}', 'tftp {TEE_ADDR} {TEE}',
+                 'setenv initrd_size ${filesize}', 'tftp {DTB_ADDR} {DTB}', 
+                 "setenv bootargs 'console=ttyO0,115200n8 root=/dev/nfs rw nfsroot={NFS_SERVER_IP}:{NFSROOTFS},tcp,hard  ip=dhcp'", '{BOOTX}'
+               ]
+              },
+              'nbd': {
+                'commands': ['setenv autoload no', 'setenv initrd_high 0xffffffff', 'setenv fdt_high 0xffffffff', 'dhcp', 'setenv serverip {SERVER_IP}', 
+                  'tftp {KERNEL_ADDR} {KERNEL}', 'tftp {RAMDISK_ADDR} {RAMDISK}', 'tftp {TEE_ADDR} {TEE}', 'setenv initrd_size ${filesize}', 'tftp {DTB_ADDR} {DTB}', 
+                  "setenv bootargs 'console=ttyO0,115200n8 rw nbd.server={NBDSERVERIP} nbd.port={NBDSERVERPORT} root=/dev/ram0 ramdisk_size=16384 rootdelay=7   
+                    ip=dhcp verbose earlyprintk systemd.log_color=false ${extraargs} rw'", '{BOOTX}'
+                ]
+              }, 
+              'ramdisk': {
+                'commands': ['setenv autoload no', 'setenv initrd_high 0xffffffff', 'setenv fdt_high 0xffffffff', 'dhcp', 'setenv serverip {SERVER_IP}', 
+                  'tftp {KERNEL_ADDR} {KERNEL}', 'tftp {RAMDISK_ADDR} {RAMDISK}', 'tftp {TEE_ADDR} {TEE}', 'setenv initrd_size ${filesize}', 'tftp {DTB_ADDR} {DTB}', 
+                  "setenv bootargs 'console=ttyO0,115200n8 root=/dev/ram0  ip=dhcp'", '{BOOTX}'
+                ]
+              }, 
+              'usb': {
+                'commands': ['usb start', 'setenv autoload no', 'load usb :{ROOT_PART} {KERNEL_ADDR} {KERNEL}', 'load usb :{ROOT_PART} {RAMDISK_ADDR} {RAMDISK}', 
+                  'setenv initrd_size ${filesize}', 'load usb :{ROOT_PART} {DTB_ADDR} {DTB}', 'console=ttyO0,115200n8 root={ROOT}  ip=dhcp', '{BOOTX}'
+                ]
+              },
+              'sata': {
+                'commands': ['scsi scan', 'setenv autoload no', 'load scsi {ROOT_PART} {KERNEL_ADDR} {KERNEL}', 
+                  'load scsi {ROOT_PART} {RAMDISK_ADDR} {RAMDISK}; setenv initrd_size ${filesize}', 'load scsi {ROOT_PART} {DTB_ADDR} {DTB}', 
+                  "setenv bootargs 'console=ttyO0,115200n8 root={ROOT}  ip=dhcp'", '{BOOTX}'
+                ]
+              }
+            }, 
+          'uuu': {'options': {'usb_otg_path': '', 'corrupt_boot_media_command': None, 'docker_image': '', 'remote_options': ''}} 
+        } *#END METHODS*
+      } *#END BOOT*
+   }, *#END ACTIONS*
+   'timeouts': { *#INIT TIMEOUT*
+      'actions': {
+         'apply-overlay-image': {'minutes': 2}, 'dd-image': {'minutes': 10}, 'download-retry': {'minutes': 5}, 
+         'http-download': {'minutes': 5}, 'lava-test-shell': {'minutes': 3}, 'nfs-deploy': {'minutes': 10}, 'power-off': {'seconds': 10}, 
+         'bootloader-commands': {'minutes': 3}, 'bootloader-interrupt': {'seconds': 30}, 'u-boot-interrupt': {'seconds': 30}, 
+         'umount-retry': {'seconds': 45}, 'auto-login-action': {'minutes': 2}, 'bootloader-action': {'minutes': 3}, 'uboot-action': {'minutes': 3}, 
+         'uboot-commands': {'minutes': 3}, 'bootloader-retry': {'minutes': 3}, 'boot-qemu-image': {'minutes': 2}, 'boot-image-retry': {'minutes': 2},
+         'flash-uboot-ums': {'minutes': 20}, 'musca-deploy': {'minutes': 3}, 'musca-boot': {'minutes': 1}, 'unmount-musca-usbmsd': {'seconds': 30},
+         'pdu-reboot': {'seconds': 30}, 'reset-device': {'seconds': 30}
+      }, 
+      'connections': {
+        'dd-image': {'minutes': 10}, 'uboot-commands': {'seconds': 30}, 'bootloader-commands': {'seconds': 30}, 'auto-login-action': {'minutes': 2}, 
+        'bootloader-interrupt': {'seconds': 30}, 'u-boot-interrupt': {'seconds': 30}, 'lava-test-shell': {'seconds': 10}, 
+        'lava-docker-test-shell': {'seconds': 10}
+      }
+   } *#END TIME OUT*
+ } *#END DEVICE*
+2021-03-22 11:08:48,572   DEBUG [4] dispatch: None
+2021-03-22 11:08:48,572   DEBUG [4] env     : {'purge': True, 'overrides': {'LC_ALL': 'C.UTF-8', 'LANG': 'C', 'PATH': '/usr/local/bin:/usr/local/sbin:/bin:/usr/bin:/usr/sbin:/sbin'}}
+2021-03-22 11:08:48,572   DEBUG [4] env-dut : None
+2021-03-22 11:08:48,783    INFO [4] RUNNING => server
+2021-03-22 11:09:08,386    INFO PING => server
+2021-03-22 11:09:08,389   ERROR -> server error: code 503
+2021-03-22 11:09:08,389   DEBUG --> HTTPConnectionPool(host='192.168.6.1', port=80): Max retries exceeded with url: /scheduler/internal/v1/workers/master-slave-pc.ch2it.com/?version=2021.01 (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fab565b9588>: Failed to establish a new connection: [Errno 101] Network is unreachable'))
+2021-03-22 11:09:08,390    INFO [4] running -> finished
+2021-03-22 11:09:08,508    INFO [4] FINISHED => server
+2021-03-22 11:09:08,510   ERROR [4] -> server error: code 503
+2021-03-22 11:09:08,510   DEBUG [4] --> HTTPConnectionPool(host='192.168.6.1', port=80): Max retries exceeded with url: /scheduler/internal/v1/jobs/4/ (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fab56586400>: Failed to establish a new connection: [Errno 101] Network is unreachable'))
+2021-03-22 11:09:28,387    INFO PING => server
+2021-03-22 11:09:28,436    INFO [4] FINISHED => server
+2021-03-22 11:09:28,476   DEBUG [4] Removing /var/lib/lava/dispatcher/worker/tmp/4
+#+END_LOG
+** Red local
+Basicamente se conecta mediante un cable rj45 ambos puertos ethernet de las dos estaciones que deseemos comunicar.
+Al host le asignamos la dirección ip 192.168.6.1
+
+ifconfig eno1 netmask 255.255.255.0 192.168.6.1
+
+Lanzamos el servidor dhcp mediante la sentencia 
+
+systemctl start isc-dhcp-server
+
+Analizando el fichero de log del servidor observamos que el DUT tiene asiganda la dirección 192.168.6.4
+
+mar 31 10:12:05 master-slave-pc.ch2it.com systemd[1]: Started LSB: DHCP server.
+mar 31 10:15:29 master-slave-pc.ch2it.com dhcpd[10906]: DHCPDISCOVER from 1c:ba:8c:f3:ad:47 via eno1
+mar 31 10:15:29 master-slave-pc.ch2it.com dhcpd[10906]: DHCPOFFER on 192.168.6.4 to 1c:ba:8c:f3:ad:47 via eno1
+mar 31 10:15:29 master-slave-pc.ch2it.com dhcpd[10906]: DHCPREQUEST for 192.168.6.4 (192.168.6.1) from 1c:ba:8c:f3:ad:47 via eno1
+mar 31 10:15:29 master-slave-pc.ch2it.com dhcpd[10906]: DHCPACK on 192.168.6.4 to 1c:ba:8c:f3:ad:47 via eno1
+
+Y comprobamos la conección con la otra estación haciendo un ping a la dirección 192.168.6.4.
+
+root@master-slave-pc:/home/churo67956# ping dut-beagle-board-ingeteam.ch2it.com
+PING dut-beagle-board-ingeteam.ch2it.com (192.168.6.4) 56(84) bytes of data.
+64 bytes from dut-beagle-board-ingeteam.ch2it.com (192.168.6.4): icmp_seq=1 ttl=64 time=0.887 ms
+64 bytes from dut-beagle-board-ingeteam.ch2it.com (192.168.6.4): icmp_seq=2 ttl=64 time=0.376 ms
+64 bytes from dut-beagle-board-ingeteam.ch2it.com (192.168.6.4): icmp_seq=3 ttl=64 time=0.348 ms
+^C
+--- dut-beagle-board-ingeteam.ch2it.com ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 14ms
+
+** Conexión SSH
+#+BEGIN_COMMENT
+Hemos comprobamo la conexión ssh puesto que a la hora de lanzar el job nos va error en el acceso
+
+#+END_COMMENT
+Accedemos al DUT mediante un cliente ssh para ello abrimos un términal y escribimos el comando
+
+ssh root@dut-beagle-board-ingeteam.ch2it.com 
+
+root@master-slave-pc:/home/churo67956# ssh root@192.168.6.4
+root@192.168.6.4's password: 
+root@dut-beagle-board-ingeteam:~# 
+
+Se nos solicita el password del usuario root, por defecto es nulo.
+Estamos dentro del servidor cuando nos muestra el prompt *root@dut-beagle-board-ingeteam* .
+
+Listamos las claves publicas de los host autorizados a conectase mediante ssh
+
+root@dut-beagle-board-ingeteam:~# cat .ssh/authorized_keys 
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDNXEaIduYzQUO8xDP1viFpJPzhsj1iWtx7KCPKV4IbXPpUspAEU2u2Wb/5vwC+5w2FxrJUlY2e4Yn6LHJwaGD/RS4nZ63VilVLT3tJcVX0NWoRtj1UjRxL4l+958qwQ0yNLfeaDSmdEHs8dcrYeY4TUZWgvv+6/WpqIWYKsvHrTmemmGkY+Iwac0wauKWQFdFhAoof5unJaFpyj2BroXUDU08SSg+G2pzLQr0Oe21VeOHsnEhqCQkQqtwwk+vzQQep2/Q3AENCPJNR6l02C0cB1MR3tEJJpL2BGplH4220lLN12+W1DLvt/w8GoS0FSAFOBvHFkM4Noh9y77wVm+oz churo67956@master-slave-pc.ch2it.com
+
+Agregamos la clave publica que lava nos proporciona por defecto  
+
+root@master-slave-pc:/home/churo67956# ls -l /lib/python3/dist-packages/lava_dispatcher/dynamic_vm_keys/lava
+lava      lava.pub  
+
+Abrimos un terminal y mediante el comando ssh-copy-id podemos enviar una clave pública especifica al servidor SSH.
+Si la copia se ha realizado de forma correcta en el mensaje observaremos lo siguiente 
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher/dynamic_vm_keys# ssh-copy-id -i lava.pub root@dut-beagle-board-ingeteam.ch2it.com
+/usr/bin/ssh-copy-id: INFO: Source of key(s) to be installed: "lava.pub"
+/usr/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/usr/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+root@dut-beagle-board-ingeteam.ch2it.com's password: 
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'root@dut-beagle-board-ingeteam.ch2it.com'"
+and check to make sure that only the key(s) you wanted were added.
+
+Probamos a conectarnos a la servidor como el usuario root para comprovar que verdaderamente no hace salta introducir el password
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher/dynamic_vm_keys# ssh -i lava root@dut-beagle-board-ingeteam.ch2it.com
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Permissions 0644 for 'lava' are too open.
+It is required that your private key files are NOT accessible by others.
+This private key will be ignored.
+Load key "lava": bad permissions
+root@dut-beagle-board-ingeteam.ch2it.com's password: 
+
+Nos aparece un error puesto que los permisos son excesivos. Solo se necesitan permitos
+de lectura y escritura para el usuario root.
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher/dynamic_vm_keys# ls -l
+total 8
+-rw-r--r-- 1 root root 1679 ene 26 10:33 lava
+-rw-r--r-- 1 root root  406 ene 26 10:33 lava.pub
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher/dynamic_vm_keys# ls -l
+total 8
+-rw------- 1 root root 1679 ene 26 10:33 lava
+-rw-r--r-- 1 root root  406 ene 26 10:33 lava.pub
+
+Tras cambiar los permisos y volver a realizar la conexión, ya tenemos acceso al servidor 
+sin necesitad de introducir passwords.
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher/dynamic_vm_keys# ssh -i lava root@192.168.6.4
+root@dut-beagle-board-ingeteam:~# 
+
+
+ 
+
+** Copia de LAVA HELPER SCRIPTS
+Como vamo previo a realizar las pruebas debemos de generar un ambiente adecuado en el  DUT.
+Para ello es necesario copiar los scripts de ayuda del HOST dentro de algún directorio del PATH en el DUT.
+Estos scripts de encuentran dentro del directorio lib/python3/dist-packages/lava_dispatcher/lava_test_shell.
+Necesitamos dar permiso de ejecución al usuario root.
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher/lava_test_shell#  chmod u+rwx lava-test-case 
+
+La variable de ambiente PATH en el DUT presenta el siguiente valor:
+
+root@dut-beagle-board-ingeteam:~# echo $PATH
+/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+
+Abrimos el términal y ejecutamos el comando scp.
+
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher# scp -i dynamic_vm_keys/lava lava_test_shell/lava-common-functions root@192.168.6.4:/usr/bin
+lava-common-functions                                                                                                                       100%  100     6.1KB/s   00:00    
+root@master-slave-pc:/lib/python3/dist-packages/lava_dispatcher# scp -i dynamic_vm_keys/lava lava_test_shell/lava-test-case root@192.168.6.4:/usr/bin
+lava-test-case                                                                                                                              100% 2090   508.7KB/s   00:00
+
+
+** Lanzando el primer job
+Tras lanzar el primer job el resultando obtenido es PASS.
+La descripción se puede obtener en 
+http://192.168.6.1:8000/scheduler/job/9
+
+
+** Gestión de la configuración
+La gestión de la configuración es fundamental en la ingenieria del software.
+Los ficheros van sufriendo modificaciones a medida que avanzamos dentro del ciclo de vida del software.
+En cierto momento puede ser necesario volver a un estado previo o estable.
+Uno de las herramientas software más empleadas es git.
+
+*** Ficheros de configuración LAVA
+
+
